@@ -108,8 +108,9 @@ exports.getUserProfile = async (req, res) => {
       await user.save();
     }
 
-    // If revoked user now has pending invitations from a new owner, clear the revoked flag
-    if (user.accessRevoked && user.pendingInvitations && user.pendingInvitations.length > 0) {
+    // If revoked user now has active pending invitations from a new owner, clear the revoked flag
+    const activePendingInvites = (user.pendingInvitations || []).filter(i => i.status !== 'declined');
+    if (user.accessRevoked && activePendingInvites.length > 0) {
       user.accessRevoked = false;
       user.revokedBy = null;
       await user.save();
@@ -207,13 +208,27 @@ exports.shareAccess = async (req, res) => {
     const invitation = {
       ownerEmail: owner.email,
       ownerName: owner.name,
-      devices: devicesToShare
+      devices: devicesToShare,
+      status: 'pending'
     };
 
     if (recipient) {
       recipient.accessRevoked = false;
       recipient.revokedBy = null;
-      recipient.pendingInvitations.push(invitation);
+
+      // Check if a declined invitation from this owner already exists
+      const existingInviteIdx = recipient.pendingInvitations.findIndex(
+        i => i.ownerEmail === owner.email.toLowerCase()
+      );
+      if (existingInviteIdx !== -1) {
+        // Reset existing invitation to pending with updated devices
+        recipient.pendingInvitations[existingInviteIdx].status = 'pending';
+        recipient.pendingInvitations[existingInviteIdx].devices = devicesToShare;
+        recipient.pendingInvitations[existingInviteIdx].ownerName = owner.name;
+        recipient.pendingInvitations[existingInviteIdx].timestamp = new Date();
+      } else {
+        recipient.pendingInvitations.push(invitation);
+      }
       await recipient.save();
     } else {
       recipient = new User({
@@ -281,6 +296,16 @@ exports.verifyEmailToShare = async (req, res) => {
 
     const alreadySharedByYou = owner.sharedWith.includes(normalizedEmail);
     if (alreadySharedByYou) {
+      // Check if the invitation was declined — allow reshare in that case
+      const targetUser = await User.findOne({ email: normalizedEmail });
+      if (targetUser) {
+        const invite = targetUser.pendingInvitations.find(
+          i => i.ownerEmail === owner.email.toLowerCase()
+        );
+        if (invite && invite.status === 'declined') {
+          return res.json({ status: 'declined_can_reshare', message: `${targetUser.name || normalizedEmail} declined your previous invite. You can reshare.`, name: targetUser.name });
+        }
+      }
       return res.json({ status: 'already_shared', message: 'You have already shared access with this email.' });
     }
 
@@ -350,7 +375,10 @@ exports.declineInvitation = async (req, res) => {
     const user = await User.findOne({ uid: req.user.uid });
     if (!user) return res.status(404).json({ error: 'User not found' });
 
-    user.pendingInvitations = user.pendingInvitations.filter(i => i.ownerEmail !== ownerEmail.toLowerCase());
+    const invite = user.pendingInvitations.find(i => i.ownerEmail === ownerEmail.toLowerCase());
+    if (!invite) return res.status(404).json({ error: 'Invitation not found' });
+
+    invite.status = 'declined';
     await user.save();
     res.json({ message: 'Invitation declined' });
   } catch (err) {
@@ -401,23 +429,28 @@ exports.getSharedDetails = async (req, res) => {
     const details = sharedUsers.map(u => {
       const isAccepted = u.mainUserEmail === owner.email;
       let sharedDevices = [];
+      let status = 'Pending';
       
       if (isAccepted) {
         // Only return devices that this owner has assigned and the shared user has
         sharedDevices = u.assignedDevices.filter(d => owner.assignedDevices.includes(d));
+        status = 'Accepted';
       } else {
-        // Pending: get devices from pending invitation
+        // Check pending invitation
         const invite = u.pendingInvitations.find(
           i => i.ownerEmail === owner.email.toLowerCase()
         );
         sharedDevices = invite ? invite.devices : [];
+        if (invite && invite.status === 'declined') {
+          status = 'Declined';
+        }
       }
 
       return {
         email: u.email,
         name: u.name,
         role: u.role,
-        status: isAccepted ? 'Accepted' : 'Pending',
+        status,
         devices: sharedDevices
       };
     });
@@ -755,21 +788,26 @@ exports.getSharedDetailsAdmin = async (req, res) => {
     const details = sharedUsers.map(u => {
       const isAccepted = u.mainUserEmail === owner.email;
       let sharedDevices = [];
+      let status = 'Pending';
       
       if (isAccepted) {
         sharedDevices = u.assignedDevices.filter(d => owner.assignedDevices.includes(d));
+        status = 'Accepted';
       } else {
         const invite = u.pendingInvitations.find(
           i => i.ownerEmail === owner.email.toLowerCase()
         );
         sharedDevices = invite ? invite.devices : [];
+        if (invite && invite.status === 'declined') {
+          status = 'Declined';
+        }
       }
 
       return {
         email: u.email,
         name: u.name,
         role: u.role,
-        status: isAccepted ? 'Accepted' : 'Pending',
+        status,
         devices: sharedDevices
       };
     });

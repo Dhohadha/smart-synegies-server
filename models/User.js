@@ -20,6 +20,7 @@ const userSchema = new mongoose.Schema({
     ownerEmail: String,
     ownerName: String,
     devices: [String],
+    status: { type: String, enum: ['pending', 'declined'], default: 'pending' },
     timestamp: { type: Date, default: Date.now }
   }]
 }, { timestamps: true });
