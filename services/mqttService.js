@@ -159,17 +159,6 @@ client.on('message', async (topic, message) => {
       device.consecutiveFaultsCount = 0;
     }
 
-    // Phase Fault Detection (Sudden drop check)
-    // Only when the system is actually running (at least one phase has substantial load >= 1.5A).
-    // If all phases are low (< 1.5A), the device is simply idle or off.
-    const maxPhase = Math.max(line1Val, line2Val, line3Val);
-    if (maxPhase >= 1.5) {
-      const threshold = Math.max(0.5, maxPhase * 0.2);
-      if (line1Val < threshold || line2Val < threshold || line3Val < threshold) {
-        await triggerNotification(deviceID, `Critical: Phase failure detected! R:${line1Val.toFixed(2)}A Y:${line2Val.toFixed(2)}A B:${line3Val.toFixed(2)}A`);
-      }
-    }
-
     await device.save();
 
     // Broadcast real-time update to WebSocket clients
@@ -196,16 +185,14 @@ async function triggerNotification(deviceID, message, isRecovery = false) {
     
     for (const user of users) {
       // Prevent spamming the same user with the same alert within 5 minutes
-      // Since phase failures and aerator faults contain varying current values or counts,
-      // we check using regular expressions to match any phase failure or aerator fault alerts.
+      // Since aerator faults contain varying current values or counts,
+      // we check using regular expressions to match any aerator fault alerts.
       let query = {
         userEmail: user.email,
         timestamp: { $gte: new Date(Date.now() - 5 * 60 * 1000) }
       };
 
-      if (message.startsWith('Critical: Phase failure detected!')) {
-        query.message = { $regex: /^Critical: Phase failure detected!/ };
-      } else if (message.includes('Aerator(s) not working!')) {
+      if (message.includes('Aerator(s) not working!')) {
         query.message = { $regex: /not working!/ };
       } else {
         query.message = message;
