@@ -24,6 +24,16 @@ client.on('connect', () => {
 const deviceQueues = new Map();
 const activeDevicesTracker = new Map();
 
+// Helper: Format date to IST (UTC+5:30) for readable logs
+function toIST(date) {
+  return new Date(date).toLocaleString('en-IN', {
+    timeZone: 'Asia/Kolkata',
+    day: '2-digit', month: 'short', year: 'numeric',
+    hour: '2-digit', minute: '2-digit', second: '2-digit',
+    hour12: true
+  });
+}
+
 client.on('message', async (topic, message) => {
   try {
     const data = JSON.parse(message.toString());
@@ -99,7 +109,7 @@ async function processDeviceMessage(deviceID, topic, data) {
       message: `Device came back online after being inactive.`,
       timestamp: new Date()
     });
-    console.log(`[STATUS] 🟢 Device [${deviceID}] is back ONLINE after being inactive since ${device.inactiveSince ? device.inactiveSince.toISOString() : 'unknown'} | Active Devices: ${activeDevicesTracker.size} [${[...activeDevicesTracker.keys()].join(', ')}]`);
+    console.log(`[STATUS] 🟢 Device [${deviceID}] is back ONLINE after being inactive since ${device.inactiveSince ? toIST(device.inactiveSince) : 'unknown'} IST | Active Devices: ${activeDevicesTracker.size} [${[...activeDevicesTracker.keys()].join(', ')}]`);
   }
   device.isActive = true;
   device.lastSeen = new Date();
@@ -350,7 +360,7 @@ setInterval(async () => {
           });
           await device.save();
 
-          console.log(`[STATUS] 🔴 Device [${device.deviceID}] is now OFFLINE | Last seen: ${device.lastSeen.toISOString()} | Inactive since: ${device.inactiveSince.toISOString()}`);
+          console.log(`[STATUS] 🔴 Device [${device.deviceID}] is now OFFLINE | Last seen: ${toIST(device.lastSeen)} IST | Inactive since: ${toIST(device.inactiveSince)} IST`);
           
           // Remove from in-memory tracker so it re-logs when it comes back
           activeDevicesTracker.delete(device.deviceID);
