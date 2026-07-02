@@ -99,6 +99,7 @@ async function processDeviceMessage(deviceID, topic, data) {
       message: `Device came back online after being inactive.`,
       timestamp: new Date()
     });
+    console.log(`[STATUS] 🟢 Device [${deviceID}] is back ONLINE after being inactive since ${device.inactiveSince ? device.inactiveSince.toISOString() : 'unknown'}`);
   }
   device.isActive = true;
   device.lastSeen = new Date();
@@ -203,31 +204,25 @@ async function processDeviceMessage(deviceID, topic, data) {
     device.consecutiveFaultsCount = 0;
   }
 
-  // Change-tracking state logger to avoid log spamming
+  // Change-tracking state updater (no spammy logs - status logged by interval checker)
   let tracker = activeDevicesTracker.get(deviceID);
   const currentReadingsStr = `${line1Val.toFixed(1)}A, ${line2Val.toFixed(1)}A, ${line3Val.toFixed(1)}A`;
-  const isFirstTime = !tracker;
 
-  if (isFirstTime) {
+  if (!tracker) {
     tracker = {
       topic: topic,
       lastReadings: currentReadingsStr,
-      lastWorkingAerators: device.workingAerators
+      lastWorkingAerators: device.workingAerators,
+      wasActive: false
     };
     activeDevicesTracker.set(deviceID, tracker);
-    console.log(`[MQTT] 🆕 First Seen Device: ${deviceID} on topic [${topic}] | Readings: [${currentReadingsStr}] | Active Devices: ${activeDevicesTracker.size}`);
+    // Log first time we see a device become active
+    console.log(`[STATUS] 🟢 Device [${deviceID}] on topic [${topic}] is now ONLINE | Active Devices: ${activeDevicesTracker.size}`);
+    tracker.wasActive = true;
   } else {
-    const readingsChanged = tracker.lastReadings !== currentReadingsStr;
-    const workingChanged = tracker.lastWorkingAerators !== device.workingAerators;
-    const topicChanged = tracker.topic !== topic;
-
-    if (readingsChanged || workingChanged || topicChanged) {
-      const oldReadings = tracker.lastReadings;
-      tracker.lastReadings = currentReadingsStr;
-      tracker.lastWorkingAerators = device.workingAerators;
-      tracker.topic = topic;
-      console.log(`[MQTT] ⚡ Change Detected for ${deviceID} on [${topic}] | Readings: [${oldReadings}] ➔ [${currentReadingsStr}] | Working: ${device.workingAerators}/${device.totalAerators}`);
-    }
+    tracker.lastReadings = currentReadingsStr;
+    tracker.lastWorkingAerators = device.workingAerators;
+    tracker.topic = topic;
   }
 
   await device.save();
@@ -353,6 +348,11 @@ setInterval(async () => {
             timestamp: new Date()
           });
           await device.save();
+
+          console.log(`[STATUS] 🔴 Device [${device.deviceID}] is now OFFLINE | Last seen: ${device.lastSeen.toISOString()} | Inactive since: ${device.inactiveSince.toISOString()}`);
+          
+          // Remove from in-memory tracker so it re-logs when it comes back
+          activeDevicesTracker.delete(device.deviceID);
           
           try {
             broadcastDeviceUpdate(device.deviceID, device);
