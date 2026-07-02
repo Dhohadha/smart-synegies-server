@@ -17,6 +17,10 @@ const deviceSchema = new mongoose.Schema({
   isCalibrated: { type: Boolean, default: false },
   consecutiveFaultsCount: { type: Number, default: 0 },
   alertActive: { type: Boolean, default: false },
+  // Connectivity Status
+  isActive: { type: Boolean, default: false },
+  lastSeen: { type: Date },
+  inactiveSince: { type: Date },
   // Runtime Data
   currentReadings: {
     line1: { type: Number, default: 0 },

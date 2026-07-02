@@ -67,7 +67,34 @@ function broadcastDeviceUpdate(deviceID, deviceData) {
   }
 }
 
+function broadcastGlobalMessage(type, payloadData) {
+  if (!wss) return;
+
+  const payload = JSON.stringify({
+    type,
+    ...payloadData
+  });
+
+  let activeClients = 0;
+  clients.forEach((ws) => {
+    try {
+      if (ws.readyState === 1) { // WebSocket.OPEN
+        ws.send(payload);
+        activeClients++;
+      }
+    } catch (err) {
+      console.error('Error sending global WS message:', err);
+      clients.delete(ws);
+    }
+  });
+
+  if (activeClients > 0) {
+    console.log(`📤 Broadcasted global message [${type}] to ${activeClients} client(s)`);
+  }
+}
+
 module.exports = {
   initWebSocket,
-  broadcastDeviceUpdate
+  broadcastDeviceUpdate,
+  broadcastGlobalMessage
 };

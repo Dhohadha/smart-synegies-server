@@ -92,6 +92,18 @@ async function processDeviceMessage(deviceID, topic, data) {
   // Update readings
   device.currentReadings = { line1: line1Val, line2: line2Val, line3: line3Val };
 
+  // Update Connectivity Status
+  if (device.isActive === false && device.lastSeen) {
+    device.history.push({
+      type: 'Update',
+      message: `Device came back online after being inactive.`,
+      timestamp: new Date()
+    });
+  }
+  device.isActive = true;
+  device.lastSeen = new Date();
+  device.inactiveSince = null;
+
   // Update relay status ONLY if they are explicitly present in the MQTT payload
   if (data.relay1Status !== undefined && device.relays && device.relays.length >= 1) {
     device.relays[0].status = data.relay1Status === true || data.relay1Status === 'true' || data.relay1Status === 1 || data.relay1Status === '1';
@@ -312,5 +324,80 @@ async function triggerNotification(deviceID, message, isRecovery = false) {
     console.error('Error sending FCM notification:', error);
   }
 }
+
+let hasAlertedAdminServerIssue = false;
+
+// Periodic Activity Checker (Every 1 minute)
+setInterval(async () => {
+  try {
+    const Device = require('../models/Device');
+    const { broadcastDeviceUpdate, broadcastGlobalMessage } = require('./websocketService');
+    const User = require('../models/User');
+    const admin = require('firebase-admin');
+
+    const devices = await Device.find({});
+    if (devices.length === 0) return;
+
+    let activeCount = 0;
+    const timeoutThreshold = 5 * 60 * 1000; // 5 minutes
+
+    for (let device of devices) {
+      if (device.isActive) {
+        if (device.lastSeen && (Date.now() - device.lastSeen.getTime() > timeoutThreshold)) {
+          // Device timed out
+          device.isActive = false;
+          device.inactiveSince = device.lastSeen;
+          device.history.push({
+            type: 'Alert',
+            message: `Device went offline (no data received for 5 minutes).`,
+            timestamp: new Date()
+          });
+          await device.save();
+          
+          try {
+            broadcastDeviceUpdate(device.deviceID, device);
+          } catch (e) { console.error('Error broadcasting WS:', e); }
+        } else {
+          activeCount++;
+        }
+      }
+    }
+
+    // Global Server Issue Check
+    if (activeCount === 0 && devices.length > 0) {
+      try {
+        broadcastGlobalMessage('server_issue_warning', { status: true, message: 'All devices are offline. Possible server issue.' });
+      } catch (e) {}
+
+      if (!hasAlertedAdminServerIssue) {
+        hasAlertedAdminServerIssue = true;
+        // Notify Admins
+        const admins = await User.find({ role: 'Admin' });
+        for (const adminUser of admins) {
+           if (adminUser.fcmToken) {
+              const payload = {
+                notification: {
+                  title: 'Critical Server Warning',
+                  body: 'All connected devices have gone offline. Please check the MQTT broker and backend connectivity.'
+                },
+                token: adminUser.fcmToken
+              };
+              try {
+                await admin.messaging().send(payload);
+              } catch(e) { console.error('FCM Admin Send Error:', e); }
+           }
+        }
+      }
+    } else {
+      hasAlertedAdminServerIssue = false;
+      try {
+        broadcastGlobalMessage('server_issue_warning', { status: false });
+      } catch (e) {}
+    }
+
+  } catch (err) {
+    console.error('Error in periodic activity checker:', err);
+  }
+}, 60000);
 
 module.exports = client;
