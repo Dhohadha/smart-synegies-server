@@ -22,6 +22,7 @@ client.on('connect', () => {
 });
 
 const deviceQueues = new Map();
+const activeDevicesTracker = new Map();
 
 client.on('message', async (topic, message) => {
   try {
@@ -188,6 +189,33 @@ async function processDeviceMessage(deviceID, topic, data) {
   } else {
     device.workingAerators = 0;
     device.consecutiveFaultsCount = 0;
+  }
+
+  // Change-tracking state logger to avoid log spamming
+  let tracker = activeDevicesTracker.get(deviceID);
+  const currentReadingsStr = `${line1Val.toFixed(1)}A, ${line2Val.toFixed(1)}A, ${line3Val.toFixed(1)}A`;
+  const isFirstTime = !tracker;
+
+  if (isFirstTime) {
+    tracker = {
+      topic: topic,
+      lastReadings: currentReadingsStr,
+      lastWorkingAerators: device.workingAerators
+    };
+    activeDevicesTracker.set(deviceID, tracker);
+    console.log(`[MQTT] 🆕 First Seen Device: ${deviceID} on topic [${topic}] | Readings: [${currentReadingsStr}] | Active Devices: ${activeDevicesTracker.size}`);
+  } else {
+    const readingsChanged = tracker.lastReadings !== currentReadingsStr;
+    const workingChanged = tracker.lastWorkingAerators !== device.workingAerators;
+    const topicChanged = tracker.topic !== topic;
+
+    if (readingsChanged || workingChanged || topicChanged) {
+      const oldReadings = tracker.lastReadings;
+      tracker.lastReadings = currentReadingsStr;
+      tracker.lastWorkingAerators = device.workingAerators;
+      tracker.topic = topic;
+      console.log(`[MQTT] ⚡ Change Detected for ${deviceID} on [${topic}] | Readings: [${oldReadings}] ➔ [${currentReadingsStr}] | Working: ${device.workingAerators}/${device.totalAerators}`);
+    }
   }
 
   await device.save();
