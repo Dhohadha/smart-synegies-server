@@ -7,9 +7,13 @@ const Notification = require('../models/Notification');
 
 const client = mqtt.connect(process.env.MQTT_BROKER_URL);
 
+client.on('error', (err) => {
+  console.error('MQTT Connection Error:', err);
+});
+
 client.on('connect', () => {
   console.log('Connected to MQTT Broker');
-  const topics = ['PMS1/data', 'PMS/+/data'];
+  const topics = ['PMS1/data', 'PMS2/data', 'PMS3/data', 'PMS4/data', 'PMS/+/data'];
   client.subscribe(topics, (err) => {
     if (!err) {
       console.log(`Subscribed to topics: ${topics.join(', ')}`);
@@ -27,6 +31,12 @@ client.on('message', async (topic, message) => {
     let deviceID = null;
     if (topic === 'PMS1/data') {
       deviceID = 'PMS_001';
+    } else if (topic === 'PMS2/data') {
+      deviceID = 'PMS_002';
+    } else if (topic === 'PMS3/data') {
+      deviceID = 'PMS_003';
+    } else if (topic === 'PMS4/data') {
+      deviceID = 'PMS_004';
     } else if (topic.startsWith('PMS/') && topic.endsWith('/data')) {
       // Pattern: PMS/deviceID/data
       deviceID = topic.split('/')[1];
@@ -156,11 +166,11 @@ async function processDeviceMessage(deviceID, topic, data) {
         });
       }
     } else {
+      // Reset the consecutive counter because we are in a normal/nominal state (notWorkingCount <= 2)
+      device.consecutiveFaultsCount = 0;
+
       // 3. Recovery: Send a notification after the alert when all the aerators are working again
       if (workingAerators === totalAerators) {
-        // Reset the counter to zero when all Aerators are working
-        device.consecutiveFaultsCount = 0;
-
         if (device.alertActive) {
           await triggerNotification(
             deviceID,
@@ -207,15 +217,17 @@ async function triggerNotification(deviceID, message, isRecovery = false) {
       // Prevent spamming the same user with the same alert within 5 minutes
       // Since aerator faults contain varying current values or counts,
       // we check using regular expressions to match any aerator fault alerts.
+      // We also scope this check strictly per-device by matching the device prefix.
       let query = {
         userEmail: user.email,
         timestamp: { $gte: new Date(Date.now() - 5 * 60 * 1000) }
       };
 
       if (message.includes('Aerator(s) not working!')) {
-        query.message = { $regex: /not working!/ };
+        const escapedLabel = deviceLabel.replace(/[-\/\\^$*+?.()|[\]{}]/g, '\\$&');
+        query.message = { $regex: new RegExp(`^\\[${escapedLabel}\\].*not working!`) };
       } else {
-        query.message = message;
+        query.message = formattedMessage;
       }
 
       const recentAlert = await Notification.findOne(query);

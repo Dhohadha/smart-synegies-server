@@ -26,13 +26,19 @@ exports.registerUser = async (req, res) => {
       if (deviceId && !user.assignedDevices.includes(deviceId)) {
         user.assignedDevices.push(deviceId);
       }
+      if (!user.settings) {
+        user.settings = { alertSoundEnabled: true };
+      } else if (user.settings.alertSoundEnabled === undefined) {
+        user.settings.alertSoundEnabled = true;
+      }
     } else {
       user = new User({
         uid: normalizedEmail, // Temporary UID, replace with actual Firebase UID on first login
         name,
         phone,
         email: normalizedEmail,
-        assignedDevices: deviceId ? [deviceId] : []
+        assignedDevices: deviceId ? [deviceId] : [],
+        settings: { alertSoundEnabled: true }
       });
     }
 
@@ -229,6 +235,11 @@ exports.shareAccess = async (req, res) => {
       } else {
         recipient.pendingInvitations.push(invitation);
       }
+      if (!recipient.settings) {
+        recipient.settings = { alertSoundEnabled: true };
+      } else if (recipient.settings.alertSoundEnabled === undefined) {
+        recipient.settings.alertSoundEnabled = true;
+      }
       await recipient.save();
     } else {
       recipient = new User({
@@ -237,7 +248,8 @@ exports.shareAccess = async (req, res) => {
         phone: 'N/A',
         email: sharedEmail,
         role: 'User',
-        pendingInvitations: [invitation]
+        pendingInvitations: [invitation],
+        settings: { alertSoundEnabled: true }
       });
       await recipient.save();
     }
@@ -547,6 +559,11 @@ exports.adminShareAccess = async (req, res) => {
       });
       sharedUser.isSharedUser = true;
       sharedUser.mainUserEmail = owner.email;
+      if (!sharedUser.settings) {
+        sharedUser.settings = { alertSoundEnabled: true };
+      } else if (sharedUser.settings.alertSoundEnabled === undefined) {
+        sharedUser.settings.alertSoundEnabled = true;
+      }
       await sharedUser.save();
     } else {
       sharedUser = new User({
@@ -556,7 +573,8 @@ exports.adminShareAccess = async (req, res) => {
         email: sharedEmail,
         assignedDevices: [...devicesToShare],
         isSharedUser: true,
-        mainUserEmail: owner.email
+        mainUserEmail: owner.email,
+        settings: { alertSoundEnabled: true }
       });
       await sharedUser.save();
     }

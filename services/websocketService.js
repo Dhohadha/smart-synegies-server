@@ -51,9 +51,14 @@ function broadcastDeviceUpdate(deviceID, deviceData) {
 
   let activeClients = 0;
   clients.forEach((ws) => {
-    if (ws.readyState === 1) { // WebSocket.OPEN
-      ws.send(payload);
-      activeClients++;
+    try {
+      if (ws.readyState === 1) { // WebSocket.OPEN
+        ws.send(payload);
+        activeClients++;
+      }
+    } catch (err) {
+      console.error('Error sending WS message to client:', err);
+      clients.delete(ws);
     }
   });
 

@@ -139,9 +139,15 @@ exports.toggleRelay = async (req, res) => {
       : device.relays[1]?.status ?? false;
 
     // Publish MQTT command to hardware
+    let controlTopic = `PMS/${id}/control`;
+    if (id === 'PMS_001') controlTopic = 'PMS1/control';
+    else if (id === 'PMS_002') controlTopic = 'PMS2/control';
+    else if (id === 'PMS_003') controlTopic = 'PMS3/control';
+    else if (id === 'PMS_004') controlTopic = 'PMS4/control';
+
     const commandPayload = { deviceID: id, relay1toggle: r1, relay2toggle: r2 };
-    mqttClient.publish(`PMS/${id}/control`, JSON.stringify(commandPayload));
-    console.log(`📤 [RELAY] Published to PMS/${id}/control:`, commandPayload);
+    mqttClient.publish(controlTopic, JSON.stringify(commandPayload));
+    console.log(`📤 [RELAY] Published to ${controlTopic}:`, commandPayload);
 
     // Save to DB immediately so next WS broadcast reflects correct state
     if (device.relays.length >= 1) device.relays[0].status = r1;
