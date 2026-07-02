@@ -25,7 +25,6 @@ const deviceQueues = new Map();
 
 client.on('message', async (topic, message) => {
   try {
-    console.log(`📩 Received message on [${topic}]`);
     const data = JSON.parse(message.toString());
     
     let deviceID = null;
@@ -44,8 +43,6 @@ client.on('message', async (topic, message) => {
       // Fallback to payload if topic doesn't match expected pattern but payload has ID
       deviceID = data.deviceID;
     }
-
-    console.log(`🆔 Determined DeviceID: ${deviceID}`);
 
     if (!deviceID) {
       console.log(`⚠️ Received message on [${topic}] but could not determine deviceID`);
