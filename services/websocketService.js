@@ -61,10 +61,6 @@ function broadcastDeviceUpdate(deviceID, deviceData) {
       clients.delete(ws);
     }
   });
-
-  if (activeClients > 0) {
-    console.log(`📤 Broadcasted real-time update for device [${deviceID}] to ${activeClients} client(s)`);
-  }
 }
 
 function broadcastGlobalMessage(type, payloadData) {
@@ -87,10 +83,6 @@ function broadcastGlobalMessage(type, payloadData) {
       clients.delete(ws);
     }
   });
-
-  if (activeClients > 0) {
-    console.log(`📤 Broadcasted global message [${type}] to ${activeClients} client(s)`);
-  }
 }
 
 module.exports = {
