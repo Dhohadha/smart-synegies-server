@@ -99,7 +99,7 @@ async function processDeviceMessage(deviceID, topic, data) {
       message: `Device came back online after being inactive.`,
       timestamp: new Date()
     });
-    console.log(`[STATUS] 🟢 Device [${deviceID}] is back ONLINE after being inactive since ${device.inactiveSince ? device.inactiveSince.toISOString() : 'unknown'}`);
+    console.log(`[STATUS] 🟢 Device [${deviceID}] is back ONLINE after being inactive since ${device.inactiveSince ? device.inactiveSince.toISOString() : 'unknown'} | Active Devices: ${activeDevicesTracker.size} [${[...activeDevicesTracker.keys()].join(', ')}]`);
   }
   device.isActive = true;
   device.lastSeen = new Date();
@@ -217,7 +217,8 @@ async function processDeviceMessage(deviceID, topic, data) {
     };
     activeDevicesTracker.set(deviceID, tracker);
     // Log first time we see a device become active
-    console.log(`[STATUS] 🟢 Device [${deviceID}] on topic [${topic}] is now ONLINE | Active Devices: ${activeDevicesTracker.size}`);
+    const activeList = [...activeDevicesTracker.keys()].join(', ');
+    console.log(`[STATUS] 🟢 Device [${deviceID}] on topic [${topic}] is now ONLINE | Active Devices: ${activeDevicesTracker.size} [${activeList}]`);
     tracker.wasActive = true;
   } else {
     tracker.lastReadings = currentReadingsStr;
@@ -353,6 +354,8 @@ setInterval(async () => {
           
           // Remove from in-memory tracker so it re-logs when it comes back
           activeDevicesTracker.delete(device.deviceID);
+          const remainingList = [...activeDevicesTracker.keys()].join(', ') || 'none';
+          console.log(`[STATUS] 📊 Active Devices remaining: ${activeDevicesTracker.size} [${remainingList}]`);
           
           try {
             broadcastDeviceUpdate(device.deviceID, device);
