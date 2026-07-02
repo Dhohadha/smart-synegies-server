@@ -18,6 +18,7 @@ router.post('/invitations/decline', verifyToken, userController.declineInvitatio
 router.delete('/revoke-access/:sharedEmail', verifyToken, userController.revokeAccess);
 router.get('/:email/shared-details', verifyToken, userController.getSharedDetails);
 router.put('/settings/alert-sound', verifyToken, userController.updateAlertSound);
+router.put('/settings/muted-devices', verifyToken, userController.updateMutedDevices);
 router.put('/profile', verifyToken, userController.updateUserProfile);
 router.put('/profile/devices/order', verifyToken, userController.updateDevicesOrder);
 

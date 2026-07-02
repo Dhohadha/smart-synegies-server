@@ -610,6 +610,31 @@ exports.updateAlertSound = async (req, res) => {
   }
 };
 
+exports.updateMutedDevices = async (req, res) => {
+  try {
+    const email = req.user.email.toLowerCase();
+    const { mutedDevices } = req.body;
+
+    if (!Array.isArray(mutedDevices)) {
+      return res.status(400).json({ error: 'mutedDevices must be an array' });
+    }
+
+    let user = await User.findOne({ email });
+    if (!user) return res.status(404).json({ message: 'User not found' });
+
+    if (!user.settings) {
+      user.settings = {};
+    }
+    user.settings.mutedDevices = mutedDevices;
+    await user.save();
+
+    res.status(200).json({ message: 'Muted devices updated', settings: user.settings });
+  } catch (error) {
+    console.error('Error updating muted devices:', error);
+    res.status(500).json({ message: 'Error updating muted devices' });
+  }
+};
+
 exports.updateUserProfile = async (req, res) => {
   try {
     const email = req.user.email.toLowerCase();

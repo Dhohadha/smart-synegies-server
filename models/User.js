@@ -8,7 +8,8 @@ const userSchema = new mongoose.Schema({
   role: { type: String, enum: ['Admin', 'User'], default: 'User' },
   fcmToken: { type: String },
   settings: {
-    alertSoundEnabled: { type: Boolean, default: true }
+    alertSoundEnabled: { type: Boolean, default: true },
+    mutedDevices: [{ type: String }] // deviceIDs for which sound alerts are muted
   },
   assignedDevices: [{ type: String }], // Array of deviceIDs
   isSharedUser: { type: Boolean, default: false },
