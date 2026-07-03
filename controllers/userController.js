@@ -602,6 +602,7 @@ exports.updateAlertSound = async (req, res) => {
       user.settings = {};
     }
     user.settings.alertSoundEnabled = alertSoundEnabled;
+    user.markModified('settings');
     await user.save();
     
     res.status(200).json({ message: 'Settings updated', settings: user.settings });
@@ -626,6 +627,7 @@ exports.updateMutedDevices = async (req, res) => {
       user.settings = {};
     }
     user.settings.mutedDevices = mutedDevices;
+    user.markModified('settings');
     await user.save();
 
     res.status(200).json({ message: 'Muted devices updated', settings: user.settings });
