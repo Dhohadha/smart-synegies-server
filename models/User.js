@@ -12,6 +12,7 @@ const userSchema = new mongoose.Schema({
     mutedDevices: [{ type: String }] // deviceIDs for which sound alerts are muted
   },
   assignedDevices: [{ type: String }], // Array of deviceIDs
+  customDeviceNames: { type: Map, of: String, default: {} },
   isSharedUser: { type: Boolean, default: false },
   mainUserEmail: { type: String }, // Who gave them access
   sharedWith: [{ type: String }], // Emails of people they shared with

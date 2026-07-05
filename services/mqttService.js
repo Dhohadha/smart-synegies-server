@@ -251,12 +251,17 @@ async function triggerNotification(deviceID, message, isRecovery = false) {
   try {
     const Device = require('../models/Device');
     const device = await Device.findOne({ deviceID });
-    const deviceLabel = (device && device.name) ? device.name : deviceID;
-    const formattedMessage = `[${deviceLabel}] ${message}`;
 
     const users = await User.find({ assignedDevices: deviceID });
     
     for (const user of users) {
+      let deviceLabel = deviceID;
+      if (user.customDeviceNames && typeof user.customDeviceNames.get === 'function' && user.customDeviceNames.get(deviceID)) {
+        deviceLabel = user.customDeviceNames.get(deviceID);
+      } else if (device && device.name) {
+        deviceLabel = device.name;
+      }
+      const formattedMessage = `[${deviceLabel}] ${message}`;
       // Prevent spamming the same user with the same alert within 5 minutes
       // Since aerator faults contain varying current values or counts,
       // we check using regular expressions to match any aerator fault alerts.

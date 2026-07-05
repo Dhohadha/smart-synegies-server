@@ -10,11 +10,49 @@ function initWebSocket(server) {
   wss.on('connection', (ws) => {
     console.log('🔌 Client connected via WebSocket');
     clients.add(ws);
+    ws.subscribedDeviceIDs = new Set(); // Track subscriptions per client connection
 
-    ws.on('message', (message) => {
+    ws.on('message', async (message) => {
       try {
         const parsed = JSON.parse(message.toString());
-        console.log('📩 Received WebSocket message from client:', parsed);
+        
+        if (parsed.type === 'subscribe') {
+          const { token, deviceID } = parsed;
+          if (!token || !deviceID) {
+            ws.send(JSON.stringify({ type: 'error', message: 'Token and DeviceID are required for subscription' }));
+            return;
+          }
+
+          try {
+            const admin = require('firebase-admin');
+            const User = require('../models/User');
+            
+            const decodedToken = await admin.auth().verifyIdToken(token);
+            const email = decodedToken.email.toLowerCase();
+            const user = await User.findOne({ email });
+
+            if (!user) {
+              ws.send(JSON.stringify({ type: 'error', message: 'User not found in database' }));
+              return;
+            }
+
+            if (!user.assignedDevices.includes(deviceID)) {
+              ws.send(JSON.stringify({ type: 'error', message: 'Forbidden: You do not have access to this device' }));
+              return;
+            }
+
+            ws.subscribedDeviceIDs.add(deviceID);
+            console.log(`✅ [WS] Subscribed connection to device: ${deviceID} for: ${email}`);
+            ws.send(JSON.stringify({ 
+              type: 'subscribed', 
+              deviceID, 
+              message: `Subscribed successfully to ${deviceID}` 
+            }));
+          } catch (authErr) {
+            console.error('❌ [WS Auth] Subscription authentication failed:', authErr.message);
+            ws.send(JSON.stringify({ type: 'error', message: 'Authentication failed for subscription' }));
+          }
+        }
         
         // Handle ping/pong or client subscription if needed
         if (parsed.type === 'ping') {
@@ -49,12 +87,10 @@ function broadcastDeviceUpdate(deviceID, deviceData) {
     data: deviceData
   });
 
-  let activeClients = 0;
   clients.forEach((ws) => {
     try {
-      if (ws.readyState === 1) { // WebSocket.OPEN
+      if (ws.readyState === 1 && ws.subscribedDeviceIDs && ws.subscribedDeviceIDs.has(deviceID)) {
         ws.send(payload);
-        activeClients++;
       }
     } catch (err) {
       console.error('Error sending WS message to client:', err);

@@ -21,6 +21,7 @@ router.put('/settings/alert-sound', verifyToken, userController.updateAlertSound
 router.put('/settings/muted-devices', verifyToken, userController.updateMutedDevices);
 router.put('/profile', verifyToken, userController.updateUserProfile);
 router.put('/profile/devices/order', verifyToken, userController.updateDevicesOrder);
+router.put('/profile/devices/name', verifyToken, userController.updateDeviceCustomName);
 
 // Alerts and Notifications
 router.post('/fcm-token', verifyToken, userController.registerFcmToken);

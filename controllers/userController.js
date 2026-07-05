@@ -689,6 +689,38 @@ exports.updateDevicesOrder = async (req, res) => {
   }
 };
 
+exports.updateDeviceCustomName = async (req, res) => {
+  try {
+    const email = req.user.email.toLowerCase();
+    const { deviceId, name } = req.body;
+    
+    if (!deviceId) {
+      return res.status(400).json({ error: 'Device ID is required' });
+    }
+
+    let user = await User.findOne({ email });
+    if (!user) return res.status(404).json({ message: 'User not found' });
+
+    if (!user.customDeviceNames) {
+      user.customDeviceNames = new Map();
+    }
+
+    if (name === undefined || name === null || name.trim() === '') {
+      user.customDeviceNames.delete(deviceId);
+    } else {
+      user.customDeviceNames.set(deviceId, name.trim());
+    }
+
+    user.markModified('customDeviceNames');
+    await user.save();
+
+    res.status(200).json({ message: 'Device custom name updated successfully', user });
+  } catch (error) {
+    console.error('Error updating device custom name:', error);
+    res.status(500).json({ message: 'Error updating device custom name' });
+  }
+};
+
 exports.registerFcmToken = async (req, res) => {
   try {
     const { token } = req.body;
