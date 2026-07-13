@@ -163,8 +163,8 @@ async function processDeviceMessage(deviceID, topic, data) {
 
     const notWorkingCount = totalAerators - workingAerators;
 
-    // 1. Alerts only trigger if number of not working aerators > 2
-    if (notWorkingCount > 2) {
+    // 1. Alerts only trigger if number of not working aerators >= 1
+    if (notWorkingCount >= 1) {
       // Increment the consecutive faults counter only if alert is not active and count is under 7
       if (!device.alertActive && (device.consecutiveFaultsCount || 0) < 7) {
         device.consecutiveFaultsCount = (device.consecutiveFaultsCount || 0) + 1;
@@ -182,12 +182,12 @@ async function processDeviceMessage(deviceID, topic, data) {
         // Log to device history
         device.history.push({
           type: 'Alert',
-          message: `Critical Alert: ${notWorkingCount} Aerators not working (${workingAerators}/${totalAerators}) triggered after 7 consistent readings.`,
+          message: `Critical Alert: ${notWorkingCount} Aerator(s) not working (${workingAerators}/${totalAerators}) triggered after 7 consistent readings.`,
           timestamp: new Date()
         });
       }
     } else {
-      // Reset the consecutive counter because we are in a normal/nominal state (notWorkingCount <= 2)
+      // Reset the consecutive counter because we are in a normal/nominal state (notWorkingCount === 0)
       device.consecutiveFaultsCount = 0;
 
       // 3. Recovery: Send a notification after the alert when all the aerators are working again
