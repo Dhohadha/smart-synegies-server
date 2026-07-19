@@ -68,6 +68,9 @@ exports.calibrateDevice = async (req, res) => {
     
     device.fixedCurrentPerAerator = fixedCurrentPerAerator;
     device.totalAerators = total; // Save total number of aerators connected
+    device.workingAerators = running; // Set working aerators immediately to the calibrated running value
+    device.lastAlertedWorkingCount = total; // Initialize/reset to total aerators
+    device.consecutiveEscalationCount = 0; // Reset escalation counter
     device.lastCalibratedAt = new Date();
     device.isCalibrated = true;
     
@@ -78,6 +81,14 @@ exports.calibrateDevice = async (req, res) => {
     });
 
     await device.save();
+
+    // Broadcast updated state to all WebSocket clients
+    try {
+      const { broadcastDeviceUpdate } = require('../services/websocketService');
+      broadcastDeviceUpdate(id, device);
+    } catch (wsErr) {
+      console.error('WS broadcast error after calibration:', wsErr);
+    }
 
     res.status(200).json({
       message,
@@ -185,6 +196,9 @@ exports.updateDeviceSettings = async (req, res) => {
         device.totalAerators = newTotal;
         device.isCalibrated = false;
         device.fixedCurrentPerAerator = 0;
+        device.workingAerators = 0; // Reset working aerators since calibration is invalidated
+        device.lastAlertedWorkingCount = 0;
+        device.consecutiveEscalationCount = 0;
       }
     }
 
@@ -202,6 +216,15 @@ exports.updateDeviceSettings = async (req, res) => {
     }
 
     await device.save();
+
+    // Broadcast updated state to all WebSocket clients
+    try {
+      const { broadcastDeviceUpdate } = require('../services/websocketService');
+      broadcastDeviceUpdate(id, device);
+    } catch (wsErr) {
+      console.error('WS broadcast error after settings update:', wsErr);
+    }
+
     res.status(200).json({ message: 'Device settings updated', device });
   } catch (error) {
     res.status(500).json({ message: 'Error updating device settings', error: error.message });

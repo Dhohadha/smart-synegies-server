@@ -13,6 +13,8 @@ const deviceSchema = new mongoose.Schema({
   fixedCurrentPerAerator: { type: Number, default: 0 },
   totalAerators: { type: Number, default: 0 },
   workingAerators: { type: Number, default: 0 },
+  lastAlertedWorkingCount: { type: Number, default: 0 },
+  consecutiveEscalationCount: { type: Number, default: 0 },
   lastCalibratedAt: { type: Date },
   isCalibrated: { type: Boolean, default: false },
   consecutiveFaultsCount: { type: Number, default: 0 },

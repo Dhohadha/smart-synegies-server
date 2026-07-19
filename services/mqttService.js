@@ -166,29 +166,64 @@ async function processDeviceMessage(deviceID, topic, data) {
     // 1. Alerts only trigger if number of not working aerators >= 1
     if (notWorkingCount >= 1) {
       // Increment the consecutive faults counter only if alert is not active and count is under 7
-      if (!device.alertActive && (device.consecutiveFaultsCount || 0) < 7) {
-        device.consecutiveFaultsCount = (device.consecutiveFaultsCount || 0) + 1;
-        console.log(`⚠️ Fault detected for device ${deviceID}: ${notWorkingCount} not working. Consecutive count: ${device.consecutiveFaultsCount}/7`);
-      }
+      if (!device.alertActive) {
+        if ((device.consecutiveFaultsCount || 0) < 7) {
+          device.consecutiveFaultsCount = (device.consecutiveFaultsCount || 0) + 1;
+          console.log(`⚠️ Fault detected for device ${deviceID}: ${notWorkingCount} not working. Consecutive count: ${device.consecutiveFaultsCount}/7`);
+        }
 
-      // 2. Consistent for 7 consecutive MQTT messages
-      if (device.consecutiveFaultsCount === 7 && !device.alertActive) {
-        await triggerNotification(
-          deviceID,
-          `Alert: ${notWorkingCount} Aerator(s) not working! (${workingAerators}/${totalAerators})`
-        );
-        device.alertActive = true;
-        
-        // Log to device history
-        device.history.push({
-          type: 'Alert',
-          message: `Critical Alert: ${notWorkingCount} Aerator(s) not working (${workingAerators}/${totalAerators}) triggered after 7 consistent readings.`,
-          timestamp: new Date()
-        });
+        // 2. Consistent for 7 consecutive MQTT messages -> Trigger Initial Alert
+        if (device.consecutiveFaultsCount === 7) {
+          await triggerNotification(
+            deviceID,
+            `Alert: ${notWorkingCount} Aerator(s) not working! (${workingAerators}/${totalAerators})`
+          );
+          device.alertActive = true;
+          device.lastAlertedWorkingCount = workingAerators;
+          device.consecutiveEscalationCount = 0; // Reset escalation just in case
+          
+          // Log to device history
+          device.history.push({
+            type: 'Alert',
+            message: `Critical Alert: ${notWorkingCount} Aerator(s) not working (${workingAerators}/${totalAerators}) triggered after 7 consistent readings.`,
+            timestamp: new Date()
+          });
+        }
+      } else {
+        // Alert is already active. Check for further escalation (workingAerators dropped below last alerted count)
+        const lastAlerted = device.lastAlertedWorkingCount !== undefined && device.lastAlertedWorkingCount !== null
+          ? device.lastAlertedWorkingCount
+          : totalAerators;
+
+        if (workingAerators < lastAlerted) {
+          device.consecutiveEscalationCount = (device.consecutiveEscalationCount || 0) + 1;
+          console.log(`⚠️ Escalated drop detected for device ${deviceID}: ${workingAerators}/${totalAerators} (previous alerted: ${lastAlerted}). Consecutive count: ${device.consecutiveEscalationCount}/7`);
+          
+          if (device.consecutiveEscalationCount === 7) {
+            await triggerNotification(
+              deviceID,
+              `Escalated Alert: ${notWorkingCount} Aerator(s) not working! (${workingAerators}/${totalAerators})`
+            );
+            device.lastAlertedWorkingCount = workingAerators;
+            device.consecutiveEscalationCount = 0;
+
+            // Log escalation to device history
+            device.history.push({
+              type: 'Alert',
+              message: `Escalated Alert: ${notWorkingCount} Aerator(s) not working (${workingAerators}/${totalAerators}) triggered after 7 consistent readings.`,
+              timestamp: new Date()
+            });
+          }
+        } else {
+          // If it rose back or stayed the same, reset escalation count (but alert remains active until 10/10)
+          device.consecutiveEscalationCount = 0;
+        }
       }
     } else {
       // Reset the consecutive counter because we are in a normal/nominal state (notWorkingCount === 0)
       device.consecutiveFaultsCount = 0;
+      device.consecutiveEscalationCount = 0;
+      device.lastAlertedWorkingCount = totalAerators;
 
       // 3. Recovery: Send a notification after the alert when all the aerators are working again
       if (workingAerators === totalAerators) {
@@ -212,6 +247,8 @@ async function processDeviceMessage(deviceID, topic, data) {
   } else {
     device.workingAerators = 0;
     device.consecutiveFaultsCount = 0;
+    device.consecutiveEscalationCount = 0;
+    device.lastAlertedWorkingCount = 0;
   }
 
   // Change-tracking state updater (no spammy logs - status logged by interval checker)
