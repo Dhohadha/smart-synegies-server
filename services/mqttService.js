@@ -1,4 +1,5 @@
 const mqtt = require('mqtt');
+const mongoose = require('mongoose');
 const Device = require('../models/Device');
 const admin = require('firebase-admin');
 const User = require('../models/User');
@@ -116,6 +117,11 @@ client.on('message', async (topic, message) => {
 });
 
 async function processDeviceMessage(deviceID, topic, data) {
+  if (mongoose.connection.readyState !== 1) {
+    console.warn(`⚠️ [MQTT] Database not connected. Skipping message processing for device ${deviceID}.`);
+    return;
+  }
+
   // Safely parse electrical readings to float with fallbacks to avoid NaN CastErrors in MongoDB
   // Supports both Red-Yellow-Blue (IR, IY, IB) from actual hardware and line1, line2, line3
   let line1Val = parseFloat(data.IR !== undefined ? data.IR : data.line1);
@@ -207,8 +213,8 @@ async function processDeviceMessage(deviceID, topic, data) {
 
     const notWorkingCount = totalAerators - smoothedWorkingAerators;
 
-    // 1. Alerts only trigger if number of not working aerators >= 1 (using smoothed count)
-    if (notWorkingCount >= 1) {
+    // 1. Alerts only trigger if number of not working aerators >= 2 (using smoothed count)
+    if (notWorkingCount >= 2) {
       // Increment the consecutive faults counter only if alert is not active and count is under 7
       if (!device.alertActive) {
         if ((device.consecutiveFaultsCount || 0) < 7) {
@@ -285,7 +291,7 @@ async function processDeviceMessage(deviceID, topic, data) {
         }
       }
     } else {
-      // Reset the consecutive counter because we are in a normal/nominal state (notWorkingCount === 0)
+      // Reset the consecutive counter because we are in a normal/nominal state (notWorkingCount < 2)
       device.consecutiveFaultsCount = 0;
       device.consecutiveEscalationCount = 0;
       device.lastAlertedWorkingCount = totalAerators;
@@ -352,6 +358,11 @@ async function processDeviceMessage(deviceID, topic, data) {
 }
 
 async function triggerNotification(deviceID, message, isRecovery = false) {
+  if (mongoose.connection.readyState !== 1) {
+    console.warn(`⚠️ [Notification] Database not connected. Cannot send notification for device ${deviceID}.`);
+    return;
+  }
+
   try {
     const Device = require('../models/Device');
     const device = await Device.findOne({ deviceID });
@@ -445,6 +456,11 @@ let hasAlertedAdminServerIssue = false;
 // Periodic Activity Checker (Every 1 minute)
 setInterval(async () => {
   try {
+    if (mongoose.connection.readyState !== 1) {
+      console.warn('⚠️ [Periodic Checker] Database not connected. Skipping activity checks.');
+      return;
+    }
+
     const Device = require('../models/Device');
     const { broadcastDeviceUpdate, broadcastGlobalMessage } = require('./websocketService');
     const User = require('../models/User');
