@@ -15,6 +15,7 @@ const deviceSchema = new mongoose.Schema({
   workingAerators: { type: Number, default: 0 },
   lastAlertedWorkingCount: { type: Number, default: 0 },
   consecutiveEscalationCount: { type: Number, default: 0 },
+  lastAlertSentAt: { type: Date },
   lastCalibratedAt: { type: Date },
   isCalibrated: { type: Boolean, default: false },
   consecutiveFaultsCount: { type: Number, default: 0 },

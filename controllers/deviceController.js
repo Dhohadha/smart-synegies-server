@@ -71,6 +71,7 @@ exports.calibrateDevice = async (req, res) => {
     device.workingAerators = running; // Set working aerators immediately to the calibrated running value
     device.lastAlertedWorkingCount = total; // Initialize/reset to total aerators
     device.consecutiveEscalationCount = 0; // Reset escalation counter
+    device.lastAlertSentAt = null; // Reset last alert sent timestamp
     device.lastCalibratedAt = new Date();
     device.isCalibrated = true;
     
@@ -199,6 +200,7 @@ exports.updateDeviceSettings = async (req, res) => {
         device.workingAerators = 0; // Reset working aerators since calibration is invalidated
         device.lastAlertedWorkingCount = 0;
         device.consecutiveEscalationCount = 0;
+        device.lastAlertSentAt = null;
       }
     }
 

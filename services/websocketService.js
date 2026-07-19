@@ -9,8 +9,13 @@ function initWebSocket(server) {
 
   wss.on('connection', (ws) => {
     console.log('🔌 Client connected via WebSocket');
+    ws.isAlive = true;
     clients.add(ws);
     ws.subscribedDeviceIDs = new Set(); // Track subscriptions per client connection
+
+    ws.on('pong', () => {
+      ws.isAlive = true;
+    });
 
     ws.on('message', async (message) => {
       try {
@@ -75,6 +80,24 @@ function initWebSocket(server) {
 
     // Send an initial connection success event
     ws.send(JSON.stringify({ type: 'connected', message: 'Successfully connected to Smart Synergies Real-Time System' }));
+  });
+
+  // Start ping interval to clean up dead connections
+  const interval = setInterval(() => {
+    clients.forEach((ws) => {
+      if (ws.isAlive === false) {
+        console.log('🧹 [WS] Terminating dead client connection');
+        clients.delete(ws);
+        return ws.terminate();
+      }
+      ws.isAlive = false;
+      ws.ping();
+    });
+  }, 30000);
+
+  // Clear interval on server close
+  wss.on('close', () => {
+    clearInterval(interval);
   });
 }
 

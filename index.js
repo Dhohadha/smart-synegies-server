@@ -39,7 +39,11 @@ admin.initializeApp({
 });
 
 // Database Connection
-mongoose.connect(process.env.MONGODB_URI)
+mongoose.set('bufferCommands', false);
+mongoose.connect(process.env.MONGODB_URI, {
+  serverSelectionTimeoutMS: 5000, // Timeout after 5s instead of hanging on initial connection
+  socketTimeoutMS: 45000          // Close sockets after 45s of inactivity
+})
   .then(() => logger.info('Connected to MongoDB'))
   .catch(err => logger.error('MongoDB connection error:', err));
 

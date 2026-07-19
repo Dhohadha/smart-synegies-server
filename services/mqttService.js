@@ -5,20 +5,39 @@ const User = require('../models/User');
 const DeviceToken = require('../models/DeviceToken');
 const Notification = require('../models/Notification');
 
-const client = mqtt.connect(process.env.MQTT_BROKER_URL);
-
-client.on('error', (err) => {
-  console.error('MQTT Connection Error:', err);
+const client = mqtt.connect(process.env.MQTT_BROKER_URL, {
+  keepalive: 30, // detect connection drop faster
+  reconnectPeriod: 5000, // delay reconnect retries to prevent rate-limit bans on public EMQX
+  connectTimeout: 30000,
+  clean: true
 });
 
 client.on('connect', () => {
-  console.log('Connected to MQTT Broker');
+  console.log('🟢 [MQTT] Connected to MQTT Broker successfully');
   const topics = ['PMS1/data', 'PMS2/data', 'PMS3/data', 'PMS4/data', 'PMS/+/data'];
   client.subscribe(topics, (err) => {
     if (!err) {
-      console.log(`Subscribed to topics: ${topics.join(', ')}`);
+      console.log(`📋 [MQTT] Subscribed to topics: ${topics.join(', ')}`);
+    } else {
+      console.error('❌ [MQTT] Subscription error:', err);
     }
   });
+});
+
+client.on('reconnect', () => {
+  console.log('🔄 [MQTT] Attempting to reconnect to broker...');
+});
+
+client.on('offline', () => {
+  console.log('🔌 [MQTT] Client went offline');
+});
+
+client.on('close', () => {
+  console.log('❌ [MQTT] Connection closed');
+});
+
+client.on('error', (err) => {
+  console.error('💥 [MQTT] Connection Error:', err);
 });
 
 const deviceQueues = new Map();
@@ -68,10 +87,25 @@ client.on('message', async (topic, message) => {
     // Queue the message processing sequentially per deviceID
     const currentPromise = deviceQueues.get(deviceID);
     const nextPromise = currentPromise.then(async () => {
+      let timeoutId;
       try {
-        await processDeviceMessage(deviceID, topic, data);
+        const timeoutPromise = new Promise((_, reject) => {
+          timeoutId = setTimeout(() => {
+            reject(new Error(`MQTT message processing timed out after 10000ms for device ${deviceID}`));
+          }, 10000);
+        });
+
+        // Run with a 10-second timeout to prevent any hanging DB/API calls from blocking the queue
+        await Promise.race([
+          processDeviceMessage(deviceID, topic, data),
+          timeoutPromise
+        ]);
       } catch (err) {
         console.error(`❌ Error processing sequential MQTT message for device ${deviceID}:`, err);
+      } finally {
+        if (timeoutId) {
+          clearTimeout(timeoutId);
+        }
       }
     });
     deviceQueues.set(deviceID, nextPromise);
@@ -147,7 +181,7 @@ async function processDeviceMessage(deviceID, topic, data) {
 
   // Aerator Detection (Only if calibrated)
   if (device.isCalibrated && device.fixedCurrentPerAerator > 0) {
-    // Use the actual current reading (line3Val) directly to show real-time changes instantly
+    // Use the actual current reading (line3Val) directly to show real-time changes instantly in UI
     let workingAerators = Math.round(line3Val / device.fixedCurrentPerAerator);
     if (isNaN(workingAerators) || workingAerators < 0) {
       workingAerators = 0;
@@ -161,56 +195,68 @@ async function processDeviceMessage(deviceID, topic, data) {
 
     device.workingAerators = workingAerators; // Store it
 
-    const notWorkingCount = totalAerators - workingAerators;
+    // Calculate a smoothed working aerator count using the moving average (avgLine3)
+    // for all alarm, escalation, and recovery logic to prevent high-frequency fluctuations/noise
+    let smoothedWorkingAerators = Math.round(avgLine3 / device.fixedCurrentPerAerator);
+    if (isNaN(smoothedWorkingAerators) || smoothedWorkingAerators < 0) {
+      smoothedWorkingAerators = 0;
+    }
+    if (smoothedWorkingAerators > totalAerators) {
+      smoothedWorkingAerators = totalAerators;
+    }
 
-    // 1. Alerts only trigger if number of not working aerators >= 1
+    const notWorkingCount = totalAerators - smoothedWorkingAerators;
+
+    // 1. Alerts only trigger if number of not working aerators >= 1 (using smoothed count)
     if (notWorkingCount >= 1) {
       // Increment the consecutive faults counter only if alert is not active and count is under 7
       if (!device.alertActive) {
         if ((device.consecutiveFaultsCount || 0) < 7) {
           device.consecutiveFaultsCount = (device.consecutiveFaultsCount || 0) + 1;
-          console.log(`⚠️ Fault detected for device ${deviceID}: ${notWorkingCount} not working. Consecutive count: ${device.consecutiveFaultsCount}/7`);
+          console.log(`⚠️ Fault detected for device ${deviceID}: ${notWorkingCount} not working. Consecutive count: ${device.consecutiveFaultsCount}/7 (smoothed working: ${smoothedWorkingAerators}/${totalAerators})`);
         }
 
         // 2. Consistent for 7 consecutive MQTT messages -> Trigger Initial Alert
         if (device.consecutiveFaultsCount === 7) {
           await triggerNotification(
             deviceID,
-            `Alert: ${notWorkingCount} Aerator(s) not working! (${workingAerators}/${totalAerators})`
+            `Alert: ${notWorkingCount} Aerator(s) not working! (${smoothedWorkingAerators}/${totalAerators})`
           );
           device.alertActive = true;
-          device.lastAlertedWorkingCount = workingAerators;
+          device.lastAlertedWorkingCount = smoothedWorkingAerators;
           device.consecutiveEscalationCount = 0; // Reset escalation just in case
+          device.lastAlertSentAt = new Date(); // Track timestamp of initial alert
           
           // Log to device history
           device.history.push({
             type: 'Alert',
-            message: `Critical Alert: ${notWorkingCount} Aerator(s) not working (${workingAerators}/${totalAerators}) triggered after 7 consistent readings.`,
+            message: `Critical Alert: ${notWorkingCount} Aerator(s) not working (${smoothedWorkingAerators}/${totalAerators}) triggered after 7 consistent readings.`,
             timestamp: new Date()
           });
         }
       } else {
-        // Alert is already active. Check for further escalation (workingAerators dropped below last alerted count)
+        // Alert is already active. Check for further escalation (smoothed count dropped below last alerted count)
         const lastAlerted = device.lastAlertedWorkingCount !== undefined && device.lastAlertedWorkingCount !== null
           ? device.lastAlertedWorkingCount
           : totalAerators;
 
-        if (workingAerators < lastAlerted) {
+        if (smoothedWorkingAerators < lastAlerted) {
           device.consecutiveEscalationCount = (device.consecutiveEscalationCount || 0) + 1;
-          console.log(`⚠️ Escalated drop detected for device ${deviceID}: ${workingAerators}/${totalAerators} (previous alerted: ${lastAlerted}). Consecutive count: ${device.consecutiveEscalationCount}/7`);
+          console.log(`⚠️ Escalated drop detected for device ${deviceID}: ${smoothedWorkingAerators}/${totalAerators} (previous alerted: ${lastAlerted}). Consecutive count: ${device.consecutiveEscalationCount}/7`);
           
           if (device.consecutiveEscalationCount === 7) {
             await triggerNotification(
               deviceID,
-              `Escalated Alert: ${notWorkingCount} Aerator(s) not working! (${workingAerators}/${totalAerators})`
+              `Escalated Alert: ${notWorkingCount} Aerator(s) not working! (${smoothedWorkingAerators}/${totalAerators})`
             );
-            device.lastAlertedWorkingCount = workingAerators;
+            device.lastAlertedWorkingCount = smoothedWorkingAerators;
             device.consecutiveEscalationCount = 0;
+            device.lastAlertSentAt = new Date(); // Track timestamp of escalated alert
 
             // Log escalation to device history
             device.history.push({
               type: 'Alert',
-              message: `Escalated Alert: ${notWorkingCount} Aerator(s) not working (${workingAerators}/${totalAerators}) triggered after 7 consistent readings.`,
+              message: `Escalated Alert: ${notWorkingCount} Aerator(s) not working (${smoothedWorkingAerators}/${totalAerators}) triggered after 7 consistent readings.`,
               timestamp: new Date()
             });
           }
@@ -219,18 +265,38 @@ async function processDeviceMessage(deviceID, topic, data) {
           device.consecutiveEscalationCount = 0;
         }
       }
+
+      // 3. Reminder Check: Re-send alert if unresolved for 10+ minutes (using smoothed count)
+      if (device.alertActive) {
+        const lastAlertTime = device.lastAlertSentAt ? new Date(device.lastAlertSentAt).getTime() : 0;
+        const nowMs = Date.now();
+        if (nowMs - lastAlertTime >= 10 * 60 * 1000) {
+          await triggerNotification(
+            deviceID,
+            `Reminder: ${notWorkingCount} Aerator(s) not working! (${smoothedWorkingAerators}/${totalAerators})`
+          );
+          device.lastAlertSentAt = new Date();
+
+          device.history.push({
+            type: 'Alert',
+            message: `Reminder Alert: ${notWorkingCount} Aerator(s) not working (${smoothedWorkingAerators}/${totalAerators}) sent (unresolved for 10+ minutes).`,
+            timestamp: new Date()
+          });
+        }
+      }
     } else {
       // Reset the consecutive counter because we are in a normal/nominal state (notWorkingCount === 0)
       device.consecutiveFaultsCount = 0;
       device.consecutiveEscalationCount = 0;
       device.lastAlertedWorkingCount = totalAerators;
+      device.lastAlertSentAt = null;
 
-      // 3. Recovery: Send a notification after the alert when all the aerators are working again
-      if (workingAerators === totalAerators) {
+      // 4. Recovery: Send a notification after the alert when all the aerators are working again (using smoothed count)
+      if (smoothedWorkingAerators === totalAerators) {
         if (device.alertActive) {
           await triggerNotification(
             deviceID,
-            `Info: All aerators are working again! (${workingAerators}/${totalAerators})`,
+            `Info: All aerators are working again! (${smoothedWorkingAerators}/${totalAerators})`,
             true
           );
           device.alertActive = false;
@@ -249,6 +315,7 @@ async function processDeviceMessage(deviceID, topic, data) {
     device.consecutiveFaultsCount = 0;
     device.consecutiveEscalationCount = 0;
     device.lastAlertedWorkingCount = 0;
+    device.lastAlertSentAt = null;
   }
 
   // Change-tracking state updater (no spammy logs - status logged by interval checker)
