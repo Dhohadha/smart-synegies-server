@@ -272,8 +272,8 @@ async function processDeviceMessage(deviceID, topic, data) {
         }
       }
 
-      // 3. Reminder Check: Re-send alert if unresolved for 10+ minutes (using smoothed count)
-      if (device.alertActive) {
+      // 3. Reminder Check: Re-send alert if unresolved for 10+ minutes (only if 2 or more aerators are working)
+      if (device.alertActive && smoothedWorkingAerators >= 2) {
         const lastAlertTime = device.lastAlertSentAt ? new Date(device.lastAlertSentAt).getTime() : 0;
         const nowMs = Date.now();
         if (nowMs - lastAlertTime >= 10 * 60 * 1000) {
