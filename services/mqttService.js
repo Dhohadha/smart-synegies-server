@@ -272,24 +272,6 @@ async function processDeviceMessage(deviceID, topic, data) {
         }
       }
 
-      // 3. Reminder Check: Re-send alert if unresolved for 10+ minutes (only if 2 or more aerators are working)
-      if (device.alertActive && smoothedWorkingAerators >= 2) {
-        const lastAlertTime = device.lastAlertSentAt ? new Date(device.lastAlertSentAt).getTime() : 0;
-        const nowMs = Date.now();
-        if (nowMs - lastAlertTime >= 10 * 60 * 1000) {
-          await triggerNotification(
-            deviceID,
-            `Reminder: ${notWorkingCount} Aerator(s) not working! (${smoothedWorkingAerators}/${totalAerators})`
-          );
-          device.lastAlertSentAt = new Date();
-
-          device.history.push({
-            type: 'Alert',
-            message: `Reminder Alert: ${notWorkingCount} Aerator(s) not working (${smoothedWorkingAerators}/${totalAerators}) sent (unresolved for 10+ minutes).`,
-            timestamp: new Date()
-          });
-        }
-      }
     } else {
       // Reset the consecutive counter because we are in a normal/nominal state (notWorkingCount < 2)
       device.consecutiveFaultsCount = 0;
